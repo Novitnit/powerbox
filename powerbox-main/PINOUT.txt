@@ -1,0 +1,146 @@
+===============================================================================
+ PowerBox - ESP32 Pin / Wiring Map
+ Source of truth: github.com/Akevara/Power-Box-new-version
+                  (PowerBox_ESP32/PowerBox_ESP32.ino + README.txt)
+===============================================================================
+ Board      : ESP32-D0WD-V3 (ESP32 Dev Module / ESP32-WROOM-32)
+ USB bridge : CP210x
+ Port used  : COM5
+ MAC        : 1c:c3:ab:b3:da:e8
+ Firmware   : esp32/powerbox_esp32/powerbox_esp32.ino
+ Core       : Arduino-ESP32 3.3.10
+
+ IMPORTANT
+ ---------
+ This file matches the upstream repo's pin map. The firmware in THIS project
+ drives the two relays (GPIO 5 and GPIO 4) through /api/power, and the sensor
+ layer is now live: GPIO 34/35/32 are sampled once per second and exposed as
+ real readings on /api/status and /api/sensors (raw mV + calibration factors).
+ The UI shows those real values whenever it is served from the board.
+
+ First bench check (no sensors wired yet): all three pins floated, AC showed
+ 39-232 mV pp noise, DC drifted 817->142 mV (a floating pin discharging) and
+ the ACS712 zero auto-calibrated to 0.142 V. Once the modules are connected
+ the DC pin must sit at a stable voltage and the ACS712 zero near ~2.5 V
+ (5 V supply) or ~1.65 V (with a 2:1 divider) - otherwise check VCC/GND.
+
+ Boot state (same as the upstream sketch): Output 1 released (DC off),
+ Output 2 released -> master power LIVE. Switch state is not persisted, so a
+ reboot or power cut comes back with AC live and the DC switch off.
+
+-------------------------------------------------------------------------------
+ 1) PIN MAP (same as the repo)
+-------------------------------------------------------------------------------
+ FUNCTION                  ESP32 PIN   NOTES
+ ------------------------  ----------  --------------------------------------
+ Output 1 (load relay)     GPIO 5      OUTPUT1_PIN  - "D5" on dev board
+ Output 2 (master shut-off)GPIO 4      OUTPUT2_PIN  - "D4" on dev board
+ AC voltage (ZMPT101B)     GPIO 34     AC_PIN       - ADC1_CH6
+ Battery DC (divider)      GPIO 35     DC_PIN       - ADC1_CH7
+ Current (ACS712)          GPIO 32     AMP_PIN      - ADC1_CH4
+
+ All three analog inputs are on ADC1 (GPIO 32-39). ADC2 is unusable while
+ Wi-Fi is active, and this firmware always runs Wi-Fi.
+
+-------------------------------------------------------------------------------
+ 2) RELAYS - ACTIVE-LOW, DRIVEN OPEN-DRAIN
+-------------------------------------------------------------------------------
+ Relay board: JQC3F-05VDC (5 V coil), 2 channels, opto-isolated, ACTIVE-LOW.
+
+   The module energises when its IN pin is pulled to GND. A 3.3 V ESP32 output
+   held HIGH is NOT enough to release a 5 V active-LOW module, so the pins are
+   driven OPEN-DRAIN (same as the repo):
+
+       pinMode(OUTPUT1_PIN, OUTPUT_OPEN_DRAIN);
+       pinMode(OUTPUT2_PIN, OUTPUT_OPEN_DRAIN);
+
+       logical ON  -> pin sinks to GND   -> relay energised
+       logical OFF -> pin floats (high-Z) -> module pull-up releases relay
+
+   Relay module wiring:
+       VCC  -> 5 V (VIN),  GND -> GND
+       IN1  -> GPIO 5      (Output 1, normal load)
+       IN2  -> GPIO 4      (Output 2, master shut-off)
+
+   Use a plain active-HIGH module instead? Then drive push-pull and invert the
+   logic. The repo's defaults assume OUTPUT_ACTIVE_LOW = 1.
+
+ OUTPUT 2 IS INVERTED (master shut-off):
+   Output 2 ON = power CUT. The load supply runs through its contact, and the
+   drive is inverted relative to Output 1 (OUTPUT2_ON_ENERGISES 0). At boot the
+   coil is energised so power flows; if the coil fails, power is cut (fail-safe).
+
+   Mapping to this project's UI (which uses master = power ON):
+       UI "master" ON   -> setOutput(2, false)   (relay energised, power ON)
+       UI "master" OFF  -> setOutput(2, true)    (relay released, power CUT)
+       UI "DC" ON/OFF   -> setOutput(1, true/false)
+
+-------------------------------------------------------------------------------
+ 3) ANALOG SENSORS
+-------------------------------------------------------------------------------
+ AC voltage - ZMPT101B :
+       VCC -> 5 V, GND -> GND, OUT -> GPIO 34
+       The module is a 5 V part; its output must be scaled/biased into the
+       ESP32's 0-3.3 V ADC range. The 5 V peak-to-peak swing must not reach
+       the pin directly.
+
+ Battery voltage - resistor divider :
+       +BATT -> R1 -> node -> R2 -> GND,  node -> GPIO 35
+       Repo ratio (R1 + R2) / R2 = 5.0  (e.g. R1 = 40k, R2 = 10k)
+       Add a 0.1 uF capacitor from the node to GND for noise.
+
+ Current - ACS712 :
+       VCC -> 5 V, GND -> GND, OUT -> GPIO 32
+       Repo default sensitivity: 0.185 V/A (ACS712-05B, 5 A version).
+       The ACS712 zero point (no load) is auto-calibrated at startup, so make
+       sure no current flows while the board boots.
+       If the output can exceed 3.3 V, add a divider before the pin.
+
+ ADC setup (same as the repo):
+       analogReadResolution(12);
+       analogSetPinAttenuation(34, ADC_11db);   // AC_PIN
+       analogSetPinAttenuation(35, ADC_11db);   // DC_PIN
+       analogSetPinAttenuation(32, ADC_11db);   // AMP_PIN
+       Use analogReadMilliVolts() so the chip's factory calibration applies.
+
+-------------------------------------------------------------------------------
+ 4) CALIBRATION CONSTANTS (from the repo, tune to your hardware)
+-------------------------------------------------------------------------------
+   ZMPT_CALIBRATION   1.00    AC voltage scale factor
+   DC_DIVIDER_RATIO   5.00    (R1 + R2) / R2
+   DC_OFFSET          0.00    small DC correction
+   BATT_EMPTY_V       10.50   battery voltage at 0 %
+   BATT_FULL_V        12.70   battery voltage at 100 %
+   ACS_SENSITIVITY    0.185   V/A   (5A board; 20A = 0.100, 30A = 0.066)
+
+   Note: the repo has NO DC current sensor. Only AC current is measured
+   (ACS712 on GPIO 32). There is no SCT-013 and no GPIO 33.
+
+-------------------------------------------------------------------------------
+ 5) PINS TO AVOID
+-------------------------------------------------------------------------------
+   GPIO 6 - 11   : connected to the SPI flash - DO NOT USE
+   GPIO 34 - 39  : input only (sensors only, cannot drive a relay)
+   GPIO 0        : BOOT button / strapping pin
+   GPIO 2        : strapping pin, onboard LED, can glitch at boot
+   GPIO 5        : strapping pin. Safe here because the relay is open-drain and
+                   released (high-Z) at boot; the module pull-up holds it high.
+   GPIO 12, 15   : strapping pins, affect boot voltage / flash timing
+   GPIO 1, 3     : UART0 TX/RX (serial log)
+
+-------------------------------------------------------------------------------
+ 6) SAFETY - READ BEFORE CONNECTING MAINS
+-------------------------------------------------------------------------------
+   * 220 V AC is lethal. The AC side must be in a proper enclosure with a
+     fuse, earth/ground connection and strain relief.
+   * Never put mains voltage on a breadboard or loose jumper wires.
+   * Use an opto-isolated relay module. Keep AC traces physically separated
+     from the 3.3 V/5 V side (clearance and creepage).
+   * ZMPT101B provides isolation for AC voltage sensing. Never connect mains
+     directly to an ESP32 pin.
+   * Add a flyback diode across any DC relay/load coil driven by a transistor
+     instead of a ready-made module.
+   * This is a prototype map, not a certified electrical design. Have the
+     mains wiring checked by a qualified person.
+
+===============================================================================
