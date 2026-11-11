@@ -12,17 +12,17 @@
 
  IMPORTANT
  ---------
- This file matches the upstream repo's pin map. The firmware in THIS project
- drives the two relays (GPIO 5 and GPIO 4) through /api/power, and the sensor
- layer is now live: GPIO 34/35/32 are sampled once per second and exposed as
- real readings on /api/status and /api/sensors (raw mV + calibration factors).
+ This file was updated for the custom pin assignment. The firmware in THIS
+ project drives the two relays (GPIO 27 and GPIO 33) through /api/power, and
+ the sensor layer samples GPIO 34/35/32 once per second and exposes the
+ readings on /api/status and /api/sensors (raw mV + calibration factors).
  The UI shows those real values whenever it is served from the board.
 
- First bench check (no sensors wired yet): all three pins floated, AC showed
- 39-232 mV pp noise, DC drifted 817->142 mV (a floating pin discharging) and
- the ACS712 zero auto-calibrated to 0.142 V. Once the modules are connected
- the DC pin must sit at a stable voltage and the ACS712 zero near ~2.5 V
- (5 V supply) or ~1.65 V (with a 2:1 divider) - otherwise check VCC/GND.
+ First bench check (older 34/35/32 map, no sensors wired yet): all three pins
+ floated, AC showed 39-232 mV pp noise, DC drifted 817->142 mV (a floating pin
+ discharging) and the ACS712 zero auto-calibrated to 0.142 V. Once the modules
+ are connected the DC pin must sit at a stable voltage and the ACS712 zero near
+ ~2.5 V (5 V supply) or ~1.65 V (with a 2:1 divider) - otherwise check VCC/GND.
 
  Boot state (same as the upstream sketch): Output 1 released (DC off),
  Output 2 released -> master power LIVE. Switch state is not persisted, so a
@@ -33,8 +33,8 @@
 -------------------------------------------------------------------------------
  FUNCTION                  ESP32 PIN   NOTES
  ------------------------  ----------  --------------------------------------
- Output 1 (load relay)     GPIO 5      OUTPUT1_PIN  - "D5" on dev board
- Output 2 (master shut-off)GPIO 4      OUTPUT2_PIN  - "D4" on dev board
+ Output 1 (load relay)     GPIO 27     OUTPUT1_PIN  - output-capable
+ Output 2 (master shut-off)GPIO 33     OUTPUT2_PIN  - output-capable
  AC voltage (ZMPT101B)     GPIO 34     AC_PIN       - ADC1_CH6
  Battery DC (divider)      GPIO 35     DC_PIN       - ADC1_CH7
  Current (ACS712)          GPIO 32     AMP_PIN      - ADC1_CH4
@@ -59,8 +59,8 @@
 
    Relay module wiring:
        VCC  -> 5 V (VIN),  GND -> GND
-       IN1  -> GPIO 5      (Output 1, normal load)
-       IN2  -> GPIO 4      (Output 2, master shut-off)
+       IN1  -> GPIO 27     (Output 1, normal load)
+       IN2  -> GPIO 33     (Output 2, master shut-off)
 
    Use a plain active-HIGH module instead? Then drive push-pull and invert the
    logic. The repo's defaults assume OUTPUT_ACTIVE_LOW = 1.
@@ -88,10 +88,18 @@
        +BATT -> R1 -> node -> R2 -> GND,  node -> GPIO 35
        Repo ratio (R1 + R2) / R2 = 5.0  (e.g. R1 = 40k, R2 = 10k)
        Add a 0.1 uF capacitor from the node to GND for noise.
+       +BATT MUST be taken from the battery side of the Output 1 relay
+       contact. If the divider sits on the load side instead, it reads ~0.7 V
+       (floating ADC pin -> bat = -1) whenever the DC circuit is switched off,
+       so the battery % disappears with the load.
 
  Current - ACS712 :
        VCC -> 5 V, GND -> GND, OUT -> GPIO 32
        Repo default sensitivity: 0.185 V/A (ACS712-05B, 5 A version).
+       The ACS712 is ratiometric: zero = VCC/2 and sensitivity scales with
+       VCC. At a sagging 4.2 V rail the real sensitivity is ~0.155 V/A, so
+       0.185 makes the reading ~16 % low. Measure VCC at the module and use
+       0.185 * VCC / 5.0 if the supply cannot be fixed.
        The ACS712 zero point (no load) is auto-calibrated at startup, so make
        sure no current flows while the board boots.
        If the output can exceed 3.3 V, add a divider before the pin.
@@ -106,25 +114,24 @@
 -------------------------------------------------------------------------------
  4) CALIBRATION CONSTANTS (from the repo, tune to your hardware)
 -------------------------------------------------------------------------------
-   ZMPT_CALIBRATION   1.00    AC voltage scale factor
+   ZMPT_CALIBRATION   696.0   AC scale (220.9 V real / 0.3174 V raw RMS)
    DC_DIVIDER_RATIO   5.00    (R1 + R2) / R2
    DC_OFFSET          0.00    small DC correction
-   BATT_EMPTY_V       10.50   battery voltage at 0 %
-   BATT_FULL_V        12.70   battery voltage at 100 %
+   BATT_EMPTY_V       9.00    3S Li-ion BMS cutoff, 0 %
+   BATT_FULL_V        12.60   3S Li-ion full charge, 100 %
+                               (BATT_CURVE[] holds the piecewise resting curve)
    ACS_SENSITIVITY    0.185   V/A   (5A board; 20A = 0.100, 30A = 0.066)
 
    Note: the repo has NO DC current sensor. Only AC current is measured
-   (ACS712 on GPIO 32). There is no SCT-013 and no GPIO 33.
+   (ACS712 on GPIO 32). There is no SCT-013. GPIO 33 is now used for Output 2.
 
 -------------------------------------------------------------------------------
  5) PINS TO AVOID
 -------------------------------------------------------------------------------
    GPIO 6 - 11   : connected to the SPI flash - DO NOT USE
-   GPIO 34 - 39  : input only (sensors only, cannot drive a relay)
+   GPIO 34 - 39  : input only (sensors only, cannot drive a relay).
    GPIO 0        : BOOT button / strapping pin
    GPIO 2        : strapping pin, onboard LED, can glitch at boot
-   GPIO 5        : strapping pin. Safe here because the relay is open-drain and
-                   released (high-Z) at boot; the module pull-up holds it high.
    GPIO 12, 15   : strapping pins, affect boot voltage / flash timing
    GPIO 1, 3     : UART0 TX/RX (serial log)
 

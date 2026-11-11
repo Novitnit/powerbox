@@ -1,0 +1,15 @@
+*   [33ma798149[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m Restore previous PowerBox commit history
+[31m|[m[32m\[m  
+* [32m|[m [33m80f0fb3[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;32mbackup-current[m[33m)[m this is tne new 1
+* [32m|[m [33m17af291[m[33m ([m[1;32mbackup-old-17af291[m[33m)[m first commit
+ [32m/[m  
+[32m|[m *   [33md0dbd4d[m[33m ([m[1;32mrescue-d0dbd4d[m[33m)[m WIP on (no branch): 808e044 Add ESP32 firmware
+[32m|[m[32m/[m[34m|[m[35m\[m  
+[32m|[m [34m|[m * [33mda56afa[m[33m ([m[1;32mrescue-da56afa[m[33m)[m untracked files on (no branch): 808e044 Add ESP32 firmware
+[32m|[m * [33me7d55d9[m[33m ([m[1;32mrescue-e7d55d9[m[33m)[m index on (no branch): 808e044 Add ESP32 firmware
+[32m|[m[32m/[m  
+* [33m808e044[m[33m ([m[1;32mbackup-old-808e044[m[33m)[m Add ESP32 firmware
+* [33m40e97ba[m first commit
+* [33m940c5ef[m Agent host session 55ef4100-ff9f-4cce-8d88-98b42d126d23 - turn 1
+* [33m5f2ea0d[m Agent host session 55ef4100-ff9f-4cce-8d88-98b42d126d23 - turn 1 start
+* [33mfcf8548[m Agent host session 55ef4100-ff9f-4cce-8d88-98b42d126d23 - baseline checkpoint

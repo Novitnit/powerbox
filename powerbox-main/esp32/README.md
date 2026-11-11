@@ -112,8 +112,8 @@ embedded UI. The sketch currently uses ~1.24 MB.
   - AP restarts briefly when the uplink changes channel.
   - Clients that were already connected before the uplink came up may need
     to toggle their Wi-Fi once to pick up the new DNS.
-- **Power control (real relays):** Output 1 = GPIO 5 (DC circuit), Output 2 =
-  GPIO 4 (master shut-off). Both are `OUTPUT_OPEN_DRAIN` and active-LOW. Output
+- **Power control (real relays):** Output 1 = GPIO 27 (DC circuit), Output 2 =
+  GPIO 33 (master shut-off). Both are `OUTPUT_OPEN_DRAIN` and active-LOW. Output
   2 is inverted: logical ON energises the coil and **cuts** power, so the boot
   default (`out1` off, `out2` off) leaves the master **live** — same as the
   upstream sketch. Switch state is not persisted, so every reboot/power cut

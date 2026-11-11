@@ -55,8 +55,8 @@ const unsigned long AP_RESTART_DELAY_MS = 2500;
 
 // Relays (see PINOUT.txt). JQC3F-05VDC modules are ACTIVE-LOW and driven
 // open-drain: LOW sinks to GND (relay energised), HIGH floats (released).
-const int OUTPUT1_PIN = 5;  // "D5" - Output 1 (normal load / DC circuit)
-const int OUTPUT2_PIN = 4;  // "D4" - Output 2 (master shut-off)
+const int OUTPUT1_PIN = 27; // Output 1 (normal load / DC circuit)
+const int OUTPUT2_PIN = 33; // Output 2 (master shut-off)
 const bool OUTPUT_ACTIVE_LOW = true;
 const bool OUTPUT1_ON_ENERGISES = true;
 const bool OUTPUT2_ON_ENERGISES = false;  // master ON cuts power
@@ -80,13 +80,26 @@ const float ZMPT_CALIBRATION = 696.0f; // AC scale: ADC RMS -> mains RMS
 const float DC_DIVIDER_RATIO = 5.00f;  // (R1 + R2) / R2
 const float DC_OFFSET = 0.00f;         // small correction, in volts
 const float ACS_SENSITIVITY = 0.185f;  // 5A=0.185, 20A=0.100, 30A=0.066 V/A
-// Battery % for a 12 V lead-acid pack: 10.50 V = 0 %, 12.70 V = 100 %.
-// For a different chemistry adjust the two thresholds (e.g. 3S Li-ion
-// 9.00 V empty, 12.60 V full). Readings under 2 V are treated as a wiring
+// Battery % for a 3S Li-ion pack (12.6 V full, 9.0 V BMS cutoff), the pack
+// fitted to this box (12 V, 25 A BMS, 2500 mAh). Li-ion sits on a nearly flat
+// 3.7-3.9 V/cell plateau, so a straight empty/full line reads far too high in
+// the middle; the table below follows the resting-voltage curve instead.
+// Under a heavy load the pack sags and the % drops early (no DC current
+// sensor exists to compensate). Readings under 2 V are treated as a wiring
 // fault (bat = -1), not as a 0 % battery.
 const bool BATT_PERCENT_ENABLED = true;
-const float BATT_EMPTY_V = 10.50f;
-const float BATT_FULL_V = 12.70f;
+const float BATT_EMPTY_V = 9.00f;
+const float BATT_FULL_V = 12.60f;
+
+struct BattPoint {
+  float volts;
+  uint8_t pct;
+};
+const BattPoint BATT_CURVE[] = {
+    {BATT_FULL_V, 100}, {12.30f, 90}, {12.00f, 80}, {11.76f, 70},
+    {11.55f, 60},       {11.40f, 50}, {11.25f, 40}, {11.10f, 30},
+    {10.95f, 20},       {10.50f, 10}, {BATT_EMPTY_V, 0},
+};
 // -------------------------------------------------------------------------
 
 const unsigned long SENSOR_INTERVAL_MS = 1000;
@@ -417,13 +430,27 @@ float readAmps() {
 
 // 0-100 % from the pack voltage, or -1 while the chemistry is unknown /
 // the divider is disconnected (a real 12 V pack never reads under 2 V).
+// BATT_CURVE is sorted high -> low; interpolate the segment containing the
+// reading so the flat middle of the Li-ion discharge curve is respected.
 int batteryPercent(float volts) {
   if (!BATT_PERCENT_ENABLED) return -1;
   if (volts < 2.0f) return -1;   // wiring fault -> UI shows the raw voltage
-  float pct = (volts - BATT_EMPTY_V) * 100.0f / (BATT_FULL_V - BATT_EMPTY_V);
-  if (pct < 0.0f) pct = 0.0f;
-  if (pct > 100.0f) pct = 100.0f;
-  return (int)(pct + 0.5f);
+
+  const int n = (int)(sizeof(BATT_CURVE) / sizeof(BATT_CURVE[0]));
+  if (volts >= BATT_CURVE[0].volts) return 100;
+  if (volts <= BATT_CURVE[n - 1].volts) return 0;
+
+  for (int i = 0; i < n - 1; i++) {
+    float hi = BATT_CURVE[i].volts;
+    float lo = BATT_CURVE[i + 1].volts;
+    if (volts <= hi && volts >= lo) {
+      float t = (volts - lo) / (hi - lo);
+      float pct = BATT_CURVE[i + 1].pct +
+                  t * (BATT_CURVE[i].pct - BATT_CURVE[i + 1].pct);
+      return (int)(pct + 0.5f);
+    }
+  }
+  return 0;
 }
 
 // ACS712 zero point. Must run with no load current: called before the master
